@@ -24,7 +24,7 @@ export interface Task {
   title: string;
   description: string;
   assignedToType: 'individual' | 'team';
-  assignedToId?: string; // contestant ID or Team string
+  assignedToId?: string;
   assignedToName: string;
   pointReward: number;
   durationMinutes: number;
@@ -71,13 +71,15 @@ export type ActivityType =
   | 'eviction' 
   | 'announcement' 
   | 'contestant' 
-  | 'system';
+  | 'system'
+  | 'security';
 
 export interface ActivityItem {
   id: string;
   timestamp: string;
   message: string;
   type: ActivityType;
+  severity?: 'normal' | 'warning' | 'critical';
 }
 
 export interface ToastItem {
@@ -88,6 +90,36 @@ export interface ToastItem {
   duration?: number;
 }
 
+// Role-Based Access Control (RBAC) types
+export type UserRole = 'big_boss' | 'producer' | 'surveillance';
+
+export interface RoleConfig {
+  id: UserRole;
+  title: string;
+  badge: string;
+  clearanceLevel: number;
+  description: string;
+  color: string;
+  canManagePoints: boolean;
+  canEvict: boolean;
+  canNominate: boolean;
+  canManageTasks: boolean;
+  canBroadcast: boolean;
+  canResetHouse: boolean;
+  canAddContestants: boolean;
+}
+
+// Event Notification types
+export interface HouseNotification {
+  id: string;
+  title: string;
+  message: string;
+  timestamp: string;
+  type: 'critical' | 'warning' | 'info' | 'success';
+  read: boolean;
+  actionTab?: NavigationTab;
+}
+
 export type NavigationTab = 
   | 'dashboard' 
   | 'contestants' 
@@ -96,4 +128,6 @@ export type NavigationTab =
   | 'nominations' 
   | 'captaincy' 
   | 'announcements' 
-  | 'eviction';
+  | 'eviction'
+  | 'analytics'
+  | 'activity-log';

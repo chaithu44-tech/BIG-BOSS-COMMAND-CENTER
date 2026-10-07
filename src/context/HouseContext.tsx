@@ -10,7 +10,10 @@ import {
   ContestantStatus,
   NavigationTab,
   TaskStatus,
-  AnnouncementType
+  AnnouncementType,
+  UserRole,
+  RoleConfig,
+  HouseNotification,
 } from '../types';
 import { 
   INITIAL_CONTESTANTS, 
@@ -27,10 +30,109 @@ import {
   speakAnnouncement
 } from '../utils/helpers';
 
+export const ROLES_CONFIG: Record<UserRole, RoleConfig> = {
+  big_boss: {
+    id: 'big_boss',
+    title: 'Big Boss (Supreme)',
+    badge: 'LVL 5 SUPREME',
+    clearanceLevel: 5,
+    description: 'Supreme executive authority. Full command over evictions, score modifications, decrees, and system overrides.',
+    color: 'text-red-400 border-red-500 bg-red-950/70',
+    canManagePoints: true,
+    canEvict: true,
+    canNominate: true,
+    canManageTasks: true,
+    canBroadcast: true,
+    canResetHouse: true,
+    canAddContestants: true,
+  },
+  producer: {
+    id: 'producer',
+    title: 'Show Producer',
+    badge: 'LVL 3 OPERATIONAL',
+    clearanceLevel: 3,
+    description: 'Operational control. Can manage contestants, tasks, and announcements. Permanent eviction and system reset require Level 5 clearance.',
+    color: 'text-amber-400 border-amber-500 bg-amber-950/70',
+    canManagePoints: true,
+    canEvict: false,
+    canNominate: true,
+    canManageTasks: true,
+    canBroadcast: true,
+    canResetHouse: false,
+    canAddContestants: true,
+  },
+  surveillance: {
+    id: 'surveillance',
+    title: 'Surveillance Officer',
+    badge: 'LVL 1 AUDIT ONLY',
+    clearanceLevel: 1,
+    description: 'Strict read-only monitoring. Inspect live feeds, leaderboard, analytics, and telemetry logs. Mutations and overrides are locked.',
+    color: 'text-blue-400 border-blue-500 bg-blue-950/70',
+    canManagePoints: false,
+    canEvict: false,
+    canNominate: false,
+    canManageTasks: false,
+    canBroadcast: false,
+    canResetHouse: false,
+    canAddContestants: false,
+  },
+};
+
+const INITIAL_NOTIFICATIONS: HouseNotification[] = [
+  {
+    id: 'notif-1',
+    title: 'Surveillance System Live',
+    message: 'Primary surveillance feeds initialized across all 8 zones.',
+    timestamp: '10:00:15',
+    type: 'info',
+    read: false,
+    actionTab: 'dashboard',
+  },
+  {
+    id: 'notif-2',
+    title: 'Danger Zone Active',
+    message: '3 contestants currently nominated for eviction this week.',
+    timestamp: '10:04:30',
+    type: 'warning',
+    read: false,
+    actionTab: 'nominations',
+  },
+  {
+    id: 'notif-3',
+    title: 'House Captaincy Decreed',
+    message: 'Rahul appointed as House Captain with executive immunity.',
+    timestamp: '10:12:00',
+    type: 'success',
+    read: false,
+    actionTab: 'captaincy',
+  },
+];
+
 interface HouseContextType {
   // Navigation
   activeTab: NavigationTab;
   setActiveTab: (tab: NavigationTab) => void;
+
+  // Role-Based Access Control (RBAC)
+  currentRole: UserRole;
+  setCurrentRole: (role: UserRole) => void;
+  rolesConfig: Record<UserRole, RoleConfig>;
+  hasPermission: (action: keyof Omit<RoleConfig, 'id' | 'title' | 'badge' | 'clearanceLevel' | 'description' | 'color'>) => boolean;
+  checkPermissionOrWarn: (action: keyof Omit<RoleConfig, 'id' | 'title' | 'badge' | 'clearanceLevel' | 'description' | 'color'>, actionName?: string) => boolean;
+
+  // Event Notifications
+  notifications: HouseNotification[];
+  unreadNotificationsCount: number;
+  markNotificationAsRead: (id: string) => void;
+  markAllNotificationsAsRead: () => void;
+  clearNotifications: () => void;
+  addNotification: (title: string, message: string, type: 'critical' | 'warning' | 'info' | 'success', actionTab?: NavigationTab) => void;
+
+  // Real-Time Activity Log Features
+  isAutoLoggingActive: boolean;
+  setIsAutoLoggingActive: (active: boolean) => void;
+  clearActivities: () => void;
+  exportActivities: (format: 'json' | 'csv') => void;
 
   // Voice Speech Synthesis
   isVoiceEnabled: boolean;
@@ -100,7 +202,7 @@ interface HouseContextType {
 
   // Announcements & Activities
   makeAnnouncement: (content: string, type?: AnnouncementType) => void;
-  addActivity: (message: string, type: ActivityItem['type']) => void;
+  addActivity: (message: string, type: ActivityItem['type'], severity?: ActivityItem['severity']) => void;
 
   // Toast
   addToast: (title: string, message: string, type: ToastItem['type'], duration?: number) => void;
@@ -112,13 +214,40 @@ interface HouseContextType {
 
 const HouseContext = createContext<HouseContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'big_boss_command_center_state_v1';
+const STORAGE_KEY = 'big_boss_command_center_state_v2';
 
 export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Navigation State
   const [activeTab, setActiveTab] = useState<NavigationTab>('dashboard');
 
-  // Load from local storage or fallback to initial data
+  // Role-Based Access Control State
+  const [currentRole, setCurrentRole] = useState<UserRole>(() => {
+    try {
+      const saved = localStorage.getItem(`${STORAGE_KEY}_role`);
+      if (saved && (saved === 'big_boss' || saved === 'producer' || saved === 'surveillance')) {
+        return saved as UserRole;
+      }
+    } catch (e) {
+      console.warn('Role load failed', e);
+    }
+    return 'big_boss';
+  });
+
+  // Event Notifications State
+  const [notifications, setNotifications] = useState<HouseNotification[]>(() => {
+    try {
+      const saved = localStorage.getItem(`${STORAGE_KEY}_notifications`);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.warn('Notifications load failed', e);
+    }
+    return INITIAL_NOTIFICATIONS;
+  });
+
+  // Real-Time auto surveillance telemetry generator
+  const [isAutoLoggingActive, setIsAutoLoggingActive] = useState<boolean>(true);
+
+  // Load persistent entities from local storage or fallback to initial data
   const [contestants, setContestants] = useState<Contestant[]>(() => {
     try {
       const saved = localStorage.getItem(`${STORAGE_KEY}_contestants`);
@@ -181,7 +310,23 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
   const [isTimerExpired, setIsTimerExpired] = useState<boolean>(false);
 
-  // Sync state changes to localStorage
+  // Sync to local storage
+  useEffect(() => {
+    try {
+      localStorage.setItem(`${STORAGE_KEY}_role`, currentRole);
+    } catch (e) {
+      console.error('Save role failed', e);
+    }
+  }, [currentRole]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(`${STORAGE_KEY}_notifications`, JSON.stringify(notifications));
+    } catch (e) {
+      console.error('Save notifications failed', e);
+    }
+  }, [notifications]);
+
   useEffect(() => {
     try {
       localStorage.setItem(`${STORAGE_KEY}_contestants`, JSON.stringify(contestants));
@@ -239,16 +384,144 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  // Notification Helpers
+  const addNotification = useCallback((
+    title: string, 
+    message: string, 
+    type: 'critical' | 'warning' | 'info' | 'success', 
+    actionTab?: NavigationTab
+  ) => {
+    const newNotif: HouseNotification = {
+      id: generateUniqueId('notif'),
+      title,
+      message,
+      timestamp: formatCurrentTime(),
+      type,
+      read: false,
+      actionTab,
+    };
+    setNotifications((prev) => [newNotif, ...prev.slice(0, 49)]);
+  }, []);
+
+  const markNotificationAsRead = useCallback((id: string) => {
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+  }, []);
+
+  const markAllNotificationsAsRead = useCallback(() => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    addToast('Notifications Read', 'All alerts marked as read.', 'info');
+  }, [addToast]);
+
+  const clearNotifications = useCallback(() => {
+    setNotifications([]);
+    addToast('Cleared', 'Notification center cleared.', 'info');
+  }, [addToast]);
+
+  const unreadNotificationsCount = useMemo(() => {
+    return notifications.filter((n) => !n.read).length;
+  }, [notifications]);
+
   // Activity Log Helper
-  const addActivity = useCallback((message: string, type: ActivityItem['type']) => {
+  const addActivity = useCallback((message: string, type: ActivityItem['type'], severity: ActivityItem['severity'] = 'normal') => {
     const newActivity: ActivityItem = {
       id: generateUniqueId('act'),
       timestamp: formatCurrentTime(),
       message,
       type,
+      severity,
     };
-    setActivities((prev) => [newActivity, ...prev.slice(0, 49)]); // keep latest 50
+    setActivities((prev) => [newActivity, ...prev.slice(0, 99)]);
   }, []);
+
+  const clearActivities = useCallback(() => {
+    setActivities([]);
+    addToast('Logs Cleared', 'Surveillance activity logs flushed.', 'info');
+  }, [addToast]);
+
+  const exportActivities = useCallback((format: 'json' | 'csv') => {
+    if (activities.length === 0) {
+      addToast('Export Notice', 'No activity logs to export.', 'warning');
+      return;
+    }
+    let dataStr = '';
+    let fileName = `big_boss_logs_${Date.now()}`;
+    let mimeType = 'text/plain';
+
+    if (format === 'json') {
+      dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(activities, null, 2));
+      fileName += '.json';
+      mimeType = 'application/json';
+    } else {
+      const header = 'id,timestamp,type,severity,message\n';
+      const rows = activities
+        .map((a) => `"${a.id}","${a.timestamp}","${a.type}","${a.severity || 'normal'}","${a.message.replace(/"/g, '""')}"`)
+        .join('\n');
+      dataStr = 'data:text/csv;charset=utf-8,' + encodeURIComponent(header + rows);
+      fileName += '.csv';
+      mimeType = 'text/csv';
+    }
+
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute('href', dataStr);
+    downloadAnchor.setAttribute('download', fileName);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    addToast('Export Generated', `Saved as ${fileName.toUpperCase()}`, 'success');
+  }, [activities, addToast]);
+
+  // Simulated live surveillance telemetry events every ~26s to make the command room truly real-time
+  useEffect(() => {
+    if (!isAutoLoggingActive) return;
+
+    const telemetryEvents = [
+      { msg: 'CAM-02 (Living Quarters): Audio sensor detected whisper cluster.', type: 'security' as const, sev: 'normal' as const },
+      { msg: 'CAM-04 (Kitchen Area): Micro-activity logged during breakfast preparation.', type: 'system' as const, sev: 'normal' as const },
+      { msg: 'BIOMETRIC SCANNER: All housemates vital signs within baseline range.', type: 'system' as const, sev: 'normal' as const },
+      { msg: 'CONFESSION ROOM: Perimeter motion trigger active.', type: 'security' as const, sev: 'warning' as const },
+      { msg: 'RADAR SWEEP: Task arena perimeter locked and ready.', type: 'task' as const, sev: 'normal' as const },
+      { msg: 'CAM-07 (Gymnasium): Daily physical regime in progress.', type: 'system' as const, sev: 'normal' as const },
+    ];
+
+    const interval = setInterval(() => {
+      const randomEvent = telemetryEvents[Math.floor(Math.random() * telemetryEvents.length)];
+      addActivity(randomEvent.msg, randomEvent.type, randomEvent.sev);
+    }, 26000);
+
+    return () => clearInterval(interval);
+  }, [isAutoLoggingActive, addActivity]);
+
+  // Role Permissions
+  const hasPermission = useCallback((action: keyof Omit<RoleConfig, 'id' | 'title' | 'badge' | 'clearanceLevel' | 'description' | 'color'>): boolean => {
+    const config = ROLES_CONFIG[currentRole];
+    return Boolean(config && config[action]);
+  }, [currentRole]);
+
+  const checkPermissionOrWarn = useCallback((
+    action: keyof Omit<RoleConfig, 'id' | 'title' | 'badge' | 'clearanceLevel' | 'description' | 'color'>,
+    actionName = 'this operation'
+  ): boolean => {
+    if (hasPermission(action)) {
+      return true;
+    }
+    playAttentionChime('alert');
+    const roleConfig = ROLES_CONFIG[currentRole];
+    const roleTitle = roleConfig?.title || currentRole;
+    addToast(
+      'ACCESS RESTRICTED [403]', 
+      `Clearance insufficient: ${roleTitle} cannot perform ${actionName}. Switch to Big Boss or Producer role.`, 
+      'error',
+      5000
+    );
+    addActivity(`Security Warning: Unauthorized ${actionName} attempted under ${roleTitle}.`, 'security', 'critical');
+    addNotification(
+      'Security Access Denied',
+      `Clearance failure: ${roleTitle} attempted ${actionName} without requisite level clearance.`,
+      'critical',
+      'dashboard'
+    );
+    return false;
+  }, [hasPermission, currentRole, addToast, addActivity, addNotification]);
 
   // Speech speaker helper
   const speakCurrentAnnouncement = useCallback((text: string) => {
@@ -257,6 +530,10 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Announcement Helper
   const makeAnnouncement = useCallback((content: string, type: AnnouncementType = 'normal', isAutomatic = false) => {
+    if (!isAutomatic && !checkPermissionOrWarn('canBroadcast', 'house announcements')) {
+      return;
+    }
+
     const cleanContent = content.trim();
     if (!cleanContent) return;
 
@@ -269,7 +546,13 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     setAnnouncements((prev) => [newAnn, ...prev]);
-    addActivity(`Big Boss Announcement: "${cleanContent.substring(0, 40)}${cleanContent.length > 40 ? '...' : ''}"`, 'announcement');
+    addActivity(`Big Boss Announcement: "${cleanContent.substring(0, 45)}${cleanContent.length > 45 ? '...' : ''}"`, 'announcement');
+    addNotification(
+      'House Broadcast Issued',
+      cleanContent.substring(0, 90),
+      type === 'eviction' ? 'critical' : type === 'nomination' ? 'warning' : 'info',
+      'announcements'
+    );
     
     // Vocal speech pronunciation by Big Boss
     speakAnnouncement(cleanContent, isVoiceEnabled);
@@ -277,7 +560,7 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!isAutomatic) {
       addToast('Announcement Broadcasted', 'The house announcement was made successfully.', 'success');
     }
-  }, [addActivity, addToast, isVoiceEnabled]);
+  }, [checkPermissionOrWarn, addActivity, addNotification, addToast, isVoiceEnabled]);
 
   // Countdown Timer Interval
   useEffect(() => {
@@ -290,7 +573,8 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setIsTimerExpired(true);
             playAttentionChime('buzz');
             addToast('TIME UP', 'The House task countdown timer has expired!', 'error');
-            addActivity('Task timer expired.', 'system');
+            addActivity('Task timer expired.', 'system', 'warning');
+            addNotification('Task Timer Expired', 'The countdown has concluded. Housemates must stop task activities.', 'critical', 'tasks');
             makeAnnouncement('ATTENTION HOUSEMATES: The allotted task countdown timer has expired. Cease all activities immediately!', 'warning', true);
             return 0;
           }
@@ -301,38 +585,42 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isTimerRunning, timerSeconds, addToast, addActivity, makeAnnouncement]);
+  }, [isTimerRunning, timerSeconds, addToast, addActivity, addNotification, makeAnnouncement]);
 
   const startTimer = useCallback(() => {
+    if (!checkPermissionOrWarn('canManageTasks', 'timer controls')) return;
     if (timerSeconds <= 0) {
       setTimerSeconds(initialTimerSeconds);
     }
     setIsTimerExpired(false);
     setIsTimerRunning(true);
     addToast('Timer Started', 'Countdown active.', 'info');
-  }, [timerSeconds, initialTimerSeconds, addToast]);
+  }, [checkPermissionOrWarn, timerSeconds, initialTimerSeconds, addToast]);
 
   const pauseTimer = useCallback(() => {
+    if (!checkPermissionOrWarn('canManageTasks', 'timer controls')) return;
     setIsTimerRunning(false);
     addToast('Timer Paused', 'Countdown halted.', 'warning');
-  }, [addToast]);
+  }, [checkPermissionOrWarn, addToast]);
 
   const resetTimer = useCallback((newSeconds?: number) => {
+    if (!checkPermissionOrWarn('canManageTasks', 'timer controls')) return;
     setIsTimerRunning(false);
     setIsTimerExpired(false);
     const target = newSeconds !== undefined ? newSeconds : initialTimerSeconds;
     setInitialTimerSeconds(target);
     setTimerSeconds(target);
     addToast('Timer Reset', `Reset to ${Math.floor(target / 60)} minutes.`, 'info');
-  }, [initialTimerSeconds, addToast]);
+  }, [checkPermissionOrWarn, initialTimerSeconds, addToast]);
 
   const setCustomTimer = useCallback((seconds: number) => {
+    if (!checkPermissionOrWarn('canManageTasks', 'timer configuration')) return;
     setIsTimerRunning(false);
     setIsTimerExpired(false);
     setInitialTimerSeconds(seconds);
     setTimerSeconds(seconds);
     addToast('Timer Configured', `Duration set to ${Math.floor(seconds / 60)}m ${seconds % 60}s.`, 'info');
-  }, [addToast]);
+  }, [checkPermissionOrWarn, addToast]);
 
   // Computed lists and statistics
   const activeContestants = useMemo(() => {
@@ -397,6 +685,8 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Contestant Operations
   const addContestant = useCallback((name: string, team: Team, startingPoints = 0, status: ContestantStatus = 'Active'): boolean => {
+    if (!checkPermissionOrWarn('canAddContestants', 'registering contestants')) return false;
+
     const cleanName = name.trim();
     if (!cleanName) {
       addToast('Validation Error', 'Contestant name cannot be empty.', 'error');
@@ -428,11 +718,14 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     setContestants((prev) => [...prev, newContestant]);
     addActivity(`New contestant added: ${cleanName}`, 'contestant');
+    addNotification('Contestant Onboarded', `${cleanName} joined ${team} with ${startingPoints} points.`, 'info', 'contestants');
     addToast('Contestant Added', `"${cleanName}" added successfully to ${team}.`, 'success');
     return true;
-  }, [contestants, addToast, addActivity]);
+  }, [checkPermissionOrWarn, contestants, addToast, addActivity, addNotification]);
 
   const bulkImportContestants = useCallback((rawText: string, defaultTeam: Team, startingPoints: number): number => {
+    if (!checkPermissionOrWarn('canAddContestants', 'bulk contestant import')) return 0;
+
     const lines = rawText.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
     if (lines.length === 0) {
       addToast('Import Error', 'Please enter at least one contestant name.', 'warning');
@@ -470,22 +763,24 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (newEntries.length > 0) {
       setContestants((prev) => [...prev, ...newEntries]);
       addActivity(`Bulk imported ${addedCount} contestants to ${defaultTeam}.`, 'contestant');
+      addNotification('Bulk Import Completed', `${addedCount} new contestants enrolled into ${defaultTeam}.`, 'info', 'contestants');
       addToast('Import Successful', `${addedCount} contestants imported successfully.`, 'success');
     } else {
       addToast('Import Notice', 'No new unique contestants found to import.', 'warning');
     }
 
     return addedCount;
-  }, [contestants, addToast, addActivity]);
+  }, [checkPermissionOrWarn, contestants, addToast, addActivity, addNotification]);
 
   const editContestant = useCallback((id: string, updates: { name: string; team: Team; points: number; status: ContestantStatus }): boolean => {
+    if (!checkPermissionOrWarn('canAddContestants', 'editing contestant dossiers')) return false;
+
     const cleanName = updates.name.trim();
     if (!cleanName) {
       addToast('Validation Error', 'Contestant name cannot be empty.', 'error');
       return false;
     }
 
-    // Check duplicate name excluding self
     const duplicate = contestants.some(
       (c) => c.id !== id && !c.isEvicted && c.name.toLowerCase() === cleanName.toLowerCase()
     );
@@ -518,9 +813,11 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     addActivity(`Contestant ${cleanName} details updated.`, 'contestant');
     addToast('Updated', `Contestant ${cleanName} updated successfully.`, 'success');
     return true;
-  }, [contestants, addToast, addActivity]);
+  }, [checkPermissionOrWarn, contestants, addToast, addActivity]);
 
   const deleteContestant = useCallback((id: string): boolean => {
+    if (!checkPermissionOrWarn('canAddContestants', 'deleting contestants')) return false;
+
     const target = contestants.find((c) => c.id === id);
     if (!target) return false;
 
@@ -533,10 +830,12 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     addActivity(`Contestant "${target.name}" was removed from the House.`, 'contestant');
     addToast('Contestant Removed', `"${target.name}" was deleted.`, 'info');
     return true;
-  }, [contestants, addToast, addActivity]);
+  }, [checkPermissionOrWarn, contestants, addToast, addActivity]);
 
   // Points Actions
   const addPoints = useCallback((id: string, amount: number) => {
+    if (!checkPermissionOrWarn('canManagePoints', 'awarding points')) return;
+
     const target = contestants.find((c) => c.id === id);
     if (!target) return;
 
@@ -551,10 +850,13 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const message = `${target.name} gained +${amount} points.`;
     addActivity(message, 'points');
+    addNotification('Score Adjustment', `${target.name} awarded +${amount} points.`, 'info', 'leaderboard');
     addToast('Points Awarded', message, 'success');
-  }, [contestants, addToast, addActivity]);
+  }, [checkPermissionOrWarn, contestants, addToast, addActivity, addNotification]);
 
   const deductPoints = useCallback((id: string, amount: number) => {
+    if (!checkPermissionOrWarn('canManagePoints', 'deducting points')) return;
+
     const target = contestants.find((c) => c.id === id);
     if (!target) return;
 
@@ -568,11 +870,14 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 
     const message = `${target.name} lost -${amount} points.`;
-    addActivity(message, 'points');
+    addActivity(message, 'points', 'warning');
+    addNotification('Score Penalty', `${target.name} penalized -${amount} points.`, 'warning', 'leaderboard');
     addToast('Points Deducted', message, 'warning');
-  }, [contestants, addToast, addActivity]);
+  }, [checkPermissionOrWarn, contestants, addToast, addActivity, addNotification]);
 
   const setCustomPoints = useCallback((id: string, exactAmount: number) => {
+    if (!checkPermissionOrWarn('canManagePoints', 'setting exact score')) return;
+
     const target = contestants.find((c) => c.id === id);
     if (!target) return;
 
@@ -588,11 +893,14 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const message = `${target.name}'s points updated to ${exactAmount} (${diff >= 0 ? '+' : ''}${diff}).`;
     addActivity(message, 'points');
+    addNotification('Score Overwrite', `${target.name} points directly set to ${exactAmount}.`, 'info', 'leaderboard');
     addToast('Points Updated', message, 'info');
-  }, [contestants, addToast, addActivity]);
+  }, [checkPermissionOrWarn, contestants, addToast, addActivity, addNotification]);
 
   // Nominations & Immunity
   const nominateContestant = useCallback((id: string): boolean => {
+    if (!checkPermissionOrWarn('canNominate', 'nominating contestants')) return false;
+
     const target = contestants.find((c) => c.id === id);
     if (!target) return false;
 
@@ -616,13 +924,16 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 
     playAttentionChime('alert');
-    addActivity(`${target.name} was nominated for eviction.`, 'nomination');
+    addActivity(`${target.name} was nominated for eviction.`, 'nomination', 'warning');
+    addNotification('Danger Zone Alert', `${target.name} has been placed on the eviction ballot.`, 'warning', 'nominations');
     addToast('Nominated', `${target.name} is now nominated.`, 'warning');
     makeAnnouncement(`NOMINATION ALERT: ${target.name} has been placed in the Danger Zone facing eviction.`, 'nomination', true);
     return true;
-  }, [contestants, addToast, addActivity, makeAnnouncement]);
+  }, [checkPermissionOrWarn, contestants, addToast, addActivity, addNotification, makeAnnouncement]);
 
   const removeNomination = useCallback((id: string) => {
+    if (!checkPermissionOrWarn('canNominate', 'clearing nominations')) return;
+
     const target = contestants.find((c) => c.id === id);
     if (!target || !target.isNominated) return;
 
@@ -631,10 +942,13 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 
     addActivity(`${target.name}'s nomination was revoked.`, 'nomination');
+    addNotification('Nomination Revoked', `${target.name} was removed from the Danger Zone.`, 'info', 'nominations');
     addToast('Nomination Cleared', `${target.name} removed from Danger Zone.`, 'info');
-  }, [contestants, addToast, addActivity]);
+  }, [checkPermissionOrWarn, contestants, addToast, addActivity, addNotification]);
 
   const grantImmunity = useCallback((id: string): boolean => {
+    if (!checkPermissionOrWarn('canNominate', 'granting immunity')) return false;
+
     const target = contestants.find((c) => c.id === id);
     if (!target) return false;
 
@@ -643,14 +957,13 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return false;
     }
 
-    // Rule 17: If a nominated contestant receives immunity, automatically remove the nomination!
     setContestants((prev) =>
       prev.map((c) =>
         c.id === id
           ? {
               ...c,
               isImmune: true,
-              isNominated: false, // Automatically clears nomination!
+              isNominated: false,
             }
           : c
       )
@@ -658,12 +971,15 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     playAttentionChime('complete');
     addActivity(`${target.name} received immunity.`, 'immunity');
+    addNotification('Immunity Granted', `🛡 ${target.name} secured immunity from eviction.`, 'success', 'contestants');
     addToast('Immunity Granted', `🛡 ${target.name} is now immune from eviction.`, 'success');
     makeAnnouncement(`IMMUNITY CONFIRMED: ${target.name} has secured full immunity and cannot be nominated.`, 'immunity', true);
     return true;
-  }, [contestants, addToast, addActivity, makeAnnouncement]);
+  }, [checkPermissionOrWarn, contestants, addToast, addActivity, addNotification, makeAnnouncement]);
 
   const removeImmunity = useCallback((id: string) => {
+    if (!checkPermissionOrWarn('canNominate', 'revoking immunity')) return;
+
     const target = contestants.find((c) => c.id === id);
     if (!target || !target.isImmune) return;
 
@@ -673,10 +989,12 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     addActivity(`${target.name}'s immunity was removed.`, 'immunity');
     addToast('Immunity Revoked', `${target.name} is no longer immune.`, 'info');
-  }, [contestants, addToast, addActivity]);
+  }, [checkPermissionOrWarn, contestants, addToast, addActivity]);
 
   // Captaincy
   const setCaptain = useCallback((id: string): boolean => {
+    if (!checkPermissionOrWarn('canNominate', 'appointing captaincy')) return false;
+
     const target = contestants.find((c) => c.id === id);
     if (!target) return false;
 
@@ -685,20 +1003,22 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return false;
     }
 
-    // Only one captain allowed. Previous captain automatically loses status.
     setContestants((prev) =>
       prev.map((c) => ({
         ...c,
         isCaptain: c.id === id,
+        isImmune: c.id === id ? true : c.isImmune,
+        isNominated: c.id === id ? false : c.isNominated,
       }))
     );
 
     playAttentionChime('complete');
     addActivity(`${target.name} became House Captain.`, 'captain');
+    addNotification('New Captain Crowned', `👑 ${target.name} appointed House Captain with immunity.`, 'success', 'captaincy');
     addToast('Captain Changed', `👑 ${target.name} is now the House Captain.`, 'success');
     makeAnnouncement(`BIG BOSS ANNOUNCEMENT: ${target.name} is now the House Captain.`, 'captain', true);
     return true;
-  }, [contestants, addToast, addActivity, makeAnnouncement]);
+  }, [checkPermissionOrWarn, contestants, addToast, addActivity, addNotification, makeAnnouncement]);
 
   // Tasks Management
   const createTask = useCallback((
@@ -710,6 +1030,8 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     pointReward: number, 
     durationMinutes: number
   ) => {
+    if (!checkPermissionOrWarn('canManageTasks', 'creating tasks')) return;
+
     const newTask: Task = {
       id: generateUniqueId('task'),
       title: title.trim(),
@@ -725,10 +1047,13 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     setTasks((prev) => [newTask, ...prev]);
     addActivity(`New task created: "${title}" (Assigned: ${assignedToName})`, 'task');
+    addNotification('Task Dispatched', `"${title}" assigned to ${assignedToName} (${pointReward} pts).`, 'info', 'tasks');
     addToast('Task Created', `Task "${title}" created successfully.`, 'success');
-  }, [addToast, addActivity]);
+  }, [checkPermissionOrWarn, addToast, addActivity, addNotification]);
 
   const startTask = useCallback((taskId: string) => {
+    if (!checkPermissionOrWarn('canManageTasks', 'starting tasks')) return;
+
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
 
@@ -736,7 +1061,6 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       prev.map((t) => (t.id === taskId ? { ...t, status: 'ACTIVE' } : t))
     );
 
-    // Also auto-prepare timer for the task duration
     if (task.durationMinutes > 0) {
       setInitialTimerSeconds(task.durationMinutes * 60);
       setTimerSeconds(task.durationMinutes * 60);
@@ -745,15 +1069,17 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     addActivity(`Task "${task.title}" has started.`, 'task');
+    addNotification('Task Commenced', `"${task.title}" is in progress. Timer started.`, 'info', 'tasks');
     addToast('Task Started', `Task "${task.title}" is now active. Countdown initialized.`, 'info');
     makeAnnouncement(`TASK COMMENCED: All contestants participating in "${task.title}" must begin immediately.`, 'task', true);
-  }, [tasks, addToast, addActivity, makeAnnouncement]);
+  }, [checkPermissionOrWarn, tasks, addToast, addActivity, addNotification, makeAnnouncement]);
 
   const completeTask = useCallback((taskId: string) => {
+    if (!checkPermissionOrWarn('canManageTasks', 'completing tasks')) return;
+
     const task = tasks.find((t) => t.id === taskId);
     if (!task || task.status === 'COMPLETED') return;
 
-    // Update task
     setTasks((prev) =>
       prev.map((t) =>
         t.id === taskId
@@ -762,7 +1088,6 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       )
     );
 
-    // Reward points to assignee
     const reward = task.pointReward;
     if (reward > 0) {
       if (task.assignedToType === 'individual' && task.assignedToId) {
@@ -787,12 +1112,16 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     playAttentionChime('complete');
     addActivity(`Task "${task.title}" completed. +${reward} pts rewarded to ${task.assignedToName}.`, 'task');
+    addNotification('Task Concluded', `"${task.title}" completed! +${reward} points distributed.`, 'success', 'tasks');
     addToast('Task Completed', `"${task.title}" completed! Points awarded.`, 'success');
     makeAnnouncement(`TASK COMPLETED: "${task.title}" successfully concluded. ${task.assignedToName} awarded ${reward} points.`, 'task', true);
-  }, [tasks, addToast, addActivity, makeAnnouncement]);
+  }, [checkPermissionOrWarn, tasks, addToast, addActivity, addNotification, makeAnnouncement]);
 
   // Eviction Workflow
   const evictContestant = useCallback((id: string, reason = 'Direct eviction order'): boolean => {
+    // Eviction strictly requires Level 5 Supreme Big Boss authority!
+    if (!checkPermissionOrWarn('canEvict', 'executing permanent eviction')) return false;
+
     const target = contestants.find((c) => c.id === id);
     if (!target) return false;
 
@@ -803,7 +1132,6 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const evictionTimestamp = `Day 05, ${formatCurrentTime()}`;
 
-    // Add record to history
     const newRecord: EvictionRecord = {
       id: generateUniqueId('ev'),
       contestantId: target.id,
@@ -817,7 +1145,6 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     setEvictions((prev) => [newRecord, ...prev]);
 
-    // Update contestant status in list (set isEvicted = true, clear captain/immune/nomination)
     setContestants((prev) =>
       prev.map((c) =>
         c.id === id
@@ -834,25 +1161,35 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 
     playAttentionChime('evict');
-    addActivity(`Contestant ${target.name} was evicted from the House.`, 'eviction');
+    addActivity(`Contestant ${target.name} was evicted from the House.`, 'eviction', 'critical');
+    addNotification(
+      'CONTESTANT EXPELLED',
+      `${target.name} evicted from Big Boss house with ${target.points} final points.`,
+      'critical',
+      'eviction'
+    );
     addToast('EVICTION EXECUTED', `🔴 ${target.name} has been evicted from the House.`, 'error', 6000);
     makeAnnouncement(`🔴 BIG BOSS ANNOUNCEMENT: ${target.name} has been evicted from the House. They must exit via the main tunnel immediately.`, 'eviction', true);
     return true;
-  }, [contestants, addToast, addActivity, makeAnnouncement]);
+  }, [checkPermissionOrWarn, contestants, addToast, addActivity, addNotification, makeAnnouncement]);
 
   // Reset House
   const resetHouse = useCallback(() => {
+    if (!checkPermissionOrWarn('canResetHouse', 'wiping and resetting the entire house state')) return;
+
     localStorage.removeItem(`${STORAGE_KEY}_contestants`);
     localStorage.removeItem(`${STORAGE_KEY}_tasks`);
     localStorage.removeItem(`${STORAGE_KEY}_evictions`);
     localStorage.removeItem(`${STORAGE_KEY}_announcements`);
     localStorage.removeItem(`${STORAGE_KEY}_activities`);
+    localStorage.removeItem(`${STORAGE_KEY}_notifications`);
 
     setContestants(INITIAL_CONTESTANTS);
     setTasks(INITIAL_TASKS);
     setEvictions(INITIAL_EVICTIONS);
     setAnnouncements(INITIAL_ANNOUNCEMENTS);
     setActivities(INITIAL_ACTIVITIES);
+    setNotifications(INITIAL_NOTIFICATIONS);
     setTimerSeconds(900);
     setInitialTimerSeconds(900);
     setIsTimerRunning(false);
@@ -860,7 +1197,7 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     playAttentionChime('alert');
     addToast('House Reset', 'Big Boss Command Center restored to initial state.', 'info');
-  }, [addToast]);
+  }, [checkPermissionOrWarn, addToast]);
 
   return (
     <HouseContext.Provider
@@ -868,10 +1205,33 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         activeTab,
         setActiveTab,
 
+        // Role-Based Access Control
+        currentRole,
+        setCurrentRole,
+        rolesConfig: ROLES_CONFIG,
+        hasPermission,
+        checkPermissionOrWarn,
+
+        // Event Notifications
+        notifications,
+        unreadNotificationsCount,
+        markNotificationAsRead,
+        markAllNotificationsAsRead,
+        clearNotifications,
+        addNotification,
+
+        // Activity Log Features
+        isAutoLoggingActive,
+        setIsAutoLoggingActive,
+        clearActivities,
+        exportActivities,
+
+        // Voice Speech
         isVoiceEnabled,
         setIsVoiceEnabled,
         speakCurrentAnnouncement,
 
+        // Data Collections
         contestants,
         tasks,
         evictions,
@@ -879,6 +1239,7 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         activities,
         toasts,
 
+        // Computed Properties & Statistics
         activeContestants,
         evictedContestants,
         activeContestantsCount,
@@ -895,6 +1256,7 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         immuneContestants,
         teamPoints,
 
+        // Timer
         timerSeconds,
         initialTimerSeconds,
         isTimerRunning,
@@ -904,33 +1266,39 @@ export const HouseProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         resetTimer,
         setCustomTimer,
 
+        // Contestant Operations
         addContestant,
         bulkImportContestants,
         editContestant,
         deleteContestant,
 
+        // Points
         addPoints,
         deductPoints,
         setCustomPoints,
 
+        // Nominations & Captaincy
         nominateContestant,
         removeNomination,
         grantImmunity,
         removeImmunity,
         setCaptain,
 
+        // Tasks
         createTask,
         startTask,
         completeTask,
 
+        // Eviction
         evictContestant,
 
+        // Announcements & Activities
         makeAnnouncement,
         addActivity,
 
+        // Toast & Reset
         addToast,
         removeToast,
-
         resetHouse,
       }}
     >

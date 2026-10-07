@@ -12,10 +12,11 @@ import {
   UserPlus,
   Radio,
   Clock,
+  ArrowRight,
 } from 'lucide-react';
 
 export const LiveActivityWidget: React.FC = () => {
-  const { activities } = useHouse();
+  const { activities, setActiveTab } = useHouse();
 
   const getActivityIcon = (type: ActivityType) => {
     switch (type) {
@@ -57,14 +58,23 @@ export const LiveActivityWidget: React.FC = () => {
           </div>
         </div>
 
-        <span className="text-[10px] font-mono text-neutral-500 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">
-          {activities.length} EVENTS
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-mono text-neutral-500 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">
+            {activities.length} EVENTS
+          </span>
+          <button
+            onClick={() => setActiveTab('activity-log')}
+            className="text-[11px] font-bold text-red-400 hover:text-white uppercase tracking-wider transition-colors flex items-center gap-1 cursor-pointer"
+          >
+            <span>FULL AUDIT</span>
+            <ArrowRight className="w-3 h-3" />
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[320px]">
         {activities.length > 0 ? (
-          activities.map((act) => (
+          activities.slice(0, 8).map((act) => (
             <div
               key={act.id}
               className="flex items-start gap-2.5 p-2.5 rounded-lg bg-neutral-900/40 border border-neutral-800/60 hover:border-neutral-700/80 transition-all text-xs"

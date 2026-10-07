@@ -18,6 +18,7 @@ export const HouseAnalyticsSection: React.FC = () => {
     immuneContestants,
     houseCaptain,
     teamPoints,
+    setActiveTab,
   } = useHouse();
 
   // Find max team points for relative bar widths
@@ -54,6 +55,13 @@ export const HouseAnalyticsSection: React.FC = () => {
             </p>
           </div>
         </div>
+
+        <button
+          onClick={() => setActiveTab('analytics')}
+          className="text-xs font-bold uppercase tracking-wider text-red-400 hover:text-white transition-colors cursor-pointer flex items-center gap-1"
+        >
+          <span>DEEP INTELLIGENCE →</span>
+        </button>
       </div>
 
       {/* Grid of 5 Stat Metrics */}

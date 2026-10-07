@@ -15,6 +15,8 @@ import { NominationsView } from './pages/NominationsView';
 import { CaptaincyView } from './pages/CaptaincyView';
 import { AnnouncementsView } from './pages/AnnouncementsView';
 import { EvictionView } from './pages/EvictionView';
+import { PerformanceAnalyticsView } from './pages/PerformanceAnalyticsView';
+import { ActivityLogView } from './pages/ActivityLogView';
 
 const AppContent: React.FC = () => {
   const { activeTab } = useHouse();
@@ -53,6 +55,10 @@ const AppContent: React.FC = () => {
         return <AnnouncementsView />;
       case 'eviction':
         return <EvictionView />;
+      case 'analytics':
+        return <PerformanceAnalyticsView />;
+      case 'activity-log':
+        return <ActivityLogView />;
       default:
         return <DashboardView />;
     }
