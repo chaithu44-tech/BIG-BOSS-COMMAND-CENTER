@@ -1,0 +1,6 @@
+{
+  "name": "Big Boss Command Center",
+  "description": "Futuristic digital command center to monitor and control reality-show contestants, tasks, nominations, captaincy, and evictions in real time.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
